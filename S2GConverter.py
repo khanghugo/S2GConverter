@@ -10,8 +10,9 @@ MAX_TRIANGLES_CONST = 500
 TEXTURE_SIZE_CONST = 256
 materialist = {}
 
-WINE_PREFIX = "WINEPREFIX=/home/khang/.local/share/wineprefixes/wine32/"
+WINE_PREFIX = "WINEPREFIX=/home/khang/.local/share/wineprefixes/wine32"
 BIN_PATH = "/home/khang/map_compiler/model_tools/S2GConverter"
+NO_VTF_PATH = "/home/khang/map_compiler/no_vtf"
 
 def pathcheck(path_to_model):
     resultVar = False
@@ -39,19 +40,35 @@ def pathcheck(path_to_model):
     print("VVD Detected: " + str(contains_vvd))
     return resultVar
 
-
 def next_pow_of_two(x):
     a=math.ceil(math.log(x, 2))
     return int(math.pow(2.0, a))
 
 def convert_to_bmp_folder(path_to_vtf):
-    args = f"{WINE_PREFIX} wine {BIN_PATH}/VTFCmd.exe -folder " + str(path_to_vtf) + " " + '-exportformat "bmp" -format "A8"'
+    # no_vtf doesn't convert to bitmap file
+    args = f"{NO_VTF_PATH}/no_vtf {path_to_vtf} --output-dir {path_to_vtf} --ldr-format png --max-resolution 512 --min-resolution 16"
     os.system(args)
+
+    for infile in os.listdir(path_to_vtf):
+        if ".png" in infile:
+            f, e = os.path.splitext(infile)
+            outfile = f + ".bmp"
+            infile = f"{path_to_vtf}/{infile}"
+            outfile = f"{path_to_vtf}/{outfile}"
+
+            if infile != outfile:
+                try:
+                    with Image.open(infile) as im:
+                        im = im.quantize(colors=255)
+                        im = im.convert(mode='P')
+                        im.save(outfile)
+                except OSError:
+                    print("cannot convert", infile)
 
 def decompile_model(path_to_model):
     root = os.path.dirname(path_to_model)
-    args = f"{WINE_PREFIX} wine {BIN_PATH}/CrowbarCommandLineDecomp.exe -p {path_to_model} -o {root}"
-    os.system(args)
+    args = f"{WINE_PREFIX} wine {BIN_PATH}/CrowbarCommandLineDecomp.exe -p {path_to_model}"
+    subprocess.call(args, shell=True)
 
 def compile_goldsrc_model(path_to_qc):
     root = os.path.dirname(path_to_qc)
@@ -63,10 +80,10 @@ def resize_textures(path_to_folder):
         files = os.listdir(path_to_folder)
         for i in files:
             if i.endswith(".bmp"):
-                if not os.path.exists(path_to_folder + i):
-                    print(f"Cannot find {path_to_folder + i}. Skip.")
+                if not os.path.exists(path_to_folder + "/" + i):
+                    print(f"Cannot find {path_to_folder + "/" + i}. Skip.")
                     continue
-                picture = Image.open(path_to_folder+i)
+                picture = Image.open(path_to_folder + "/" + i)
                 width, height = picture.size
                 if width>TEXTURE_SIZE_CONST:
                     width = int((width/next_pow_of_two(width))*TEXTURE_SIZE_CONST)
@@ -79,7 +96,7 @@ def resize_textures(path_to_folder):
                     width = TEXTURE_SIZE_CONST
                 picture = picture.resize((width, height))
                 picture = picture.quantize(colors=256, method=2)
-                picture.save(path_to_folder+i)
+                picture.save(path_to_folder + "/" + i)
 
 
 def read_smd_header(path_to_smd):
@@ -142,10 +159,18 @@ def read_smd_header(path_to_smd):
                     break
     return fix_header(header[0:len(header)-1])
 
+# in case the materials are from the sdk
+def materiallist_cleanup_FUCK():
+    for (key, value) in materialist.items():
+        if len(value) != 0 and value != key:
+            materialist[key] = key;
+
 def split_smd_by_batches(smd_data):
     print('='*100)
     capability = []
     one_verticle_data = []
+    materiallist_cleanup_FUCK()
+
     for i in range(0, len(smd_data)):
         if i%4==0 and i!=0:
             if one_verticle_data[0] in materialist.keys():
@@ -267,7 +292,6 @@ def convert_model(path_to_model):
     if pathcheck(path_to_model):
         convert_to_bmp_folder(os.path.dirname(path_to_model))
         decompile_model(path_to_model)
-        resize_textures(os.path.dirname(path_to_model))
         model_name = os.path.basename(path_to_model).replace(' ', '')
         model_box_data = []
 
@@ -388,16 +412,64 @@ def fix_header(header):
 
 def argsparser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', '--input', type=str, required=True, help="Path to model you want to convert")
+    parser.add_argument('-i', '--input', type=str, help="Path to model you want to convert")
+    parser.add_argument('-p', '--path', type=str, help="Path to the folder of model(s) you want to convert")
+    parser.add_argument('-E', '--exclude', type=str, help="If model name has this string, exclude from folder conversion.")
+    parser.add_argument('-I', '--include', type=str, help="If model name has this string, include in folder conversion (lower priority).")
+    parser.add_argument('--test', action='store_true', help="Test input file(s).")
     return parser
 
 
 
 def main():
     parser = argsparser().parse_args(sys.argv[1:])
-    input_data = format(parser.input)
-    assert os.path.exists(input_data), "Model you want to convert doesn't exist"
-    convert_model(input_data)
+
+    if parser.input and len(parser.input) != 0:
+        input_data = format(parser.input)
+        assert os.path.isfile(input_data), "The input is not a file"
+        assert os.path.exists(input_data), "Model you want to convert doesn't exist"
+        input_data = os.path.realpath(input_data)
+
+        if parser.test:
+            print(input_data)
+        else:
+            convert_model(input_data)
+    elif parser.path and len(parser.path) != 0:
+        root = format(parser.path)
+        cwd = os.getcwd()
+
+        assert os.path.isdir(root), "The input is not a directory"
+        assert os.path.exists(root), "The directory does not exist"
+
+        for file in os.listdir(root):
+            if ".mdl" not in file:
+                continue
+
+            if "_goldsource" in file:
+                continue
+
+            if parser.include and len(parser.include):
+                include = format(parser.include)
+                if include not in file:
+                    continue
+
+            if parser.exclude and len(parser.exclude):
+                exclude = format(parser.exclude)
+                if exclude in file:
+                    continue
+
+            # invariants
+            os.chdir(cwd)
+            materialist.clear()
+
+            input_data = os.path.realpath(f"{root}/{file}")
+
+            # TODO: make this shit process file instead of directory
+            if parser.test:
+                print(input_data)
+            else:
+                convert_model(input_data)
+
 
 if __name__=='__main__':
     main()
