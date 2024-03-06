@@ -10,6 +10,9 @@ MAX_TRIANGLES_CONST = 500
 TEXTURE_SIZE_CONST = 256
 materialist = {}
 
+WINE_PREFIX = "WINEPREFIX=/home/khang/.local/share/wineprefixes/wine32/"
+BIN_PATH = "/home/khang/map_compiler/model_tools/S2GConverter"
+
 def pathcheck(path_to_model):
     resultVar = False
     contains_vtx = False
@@ -42,20 +45,28 @@ def next_pow_of_two(x):
     return int(math.pow(2.0, a))
 
 def convert_to_bmp_folder(path_to_vtf):
-    args = "VTFCmd.exe -folder " + str(path_to_vtf)+"\\ " + '-exportformat "bmp" -format "A8"'
-    subprocess.call(args)
+    args = f"{WINE_PREFIX} wine {BIN_PATH}/VTFCmd.exe -folder " + str(path_to_vtf) + " " + '-exportformat "bmp" -format "A8"'
+    os.system(args)
 
 def decompile_model(path_to_model):
-    args = "cr.exe "+path_to_model
-    print(path_to_model)
-    subprocess.call(args)
+    root = os.path.dirname(path_to_model)
+    args = f"{WINE_PREFIX} wine {BIN_PATH}/CrowbarCommandLineDecomp.exe -p {path_to_model} -o {root}"
+    os.system(args)
+
+def compile_goldsrc_model(path_to_qc):
+    root = os.path.dirname(path_to_qc)
+    args = f"wine {root}/studiomdl.exe {path_to_qc}"
+    os.system(args)
 
 def resize_textures(path_to_folder):
     if os.path.exists(path_to_folder):
         files = os.listdir(path_to_folder)
         for i in files:
             if i.endswith(".bmp"):
-                picture = Image.open(path_to_folder+'\\'+i)
+                if not os.path.exists(path_to_folder + i):
+                    print(f"Cannot find {path_to_folder + i}. Skip.")
+                    continue
+                picture = Image.open(path_to_folder+i)
                 width, height = picture.size
                 if width>TEXTURE_SIZE_CONST:
                     width = int((width/next_pow_of_two(width))*TEXTURE_SIZE_CONST)
@@ -68,7 +79,7 @@ def resize_textures(path_to_folder):
                     width = TEXTURE_SIZE_CONST
                 picture = picture.resize((width, height))
                 picture = picture.quantize(colors=256, method=2)
-                picture.save(path_to_folder+'\\'+i)
+                picture.save(path_to_folder+i)
 
 
 def read_smd_header(path_to_smd):
@@ -166,12 +177,12 @@ def polygons_per_part(polygons_amount):
     return data
 
 def find_smd_reference(path_to_model):
-    ttf = os.listdir(os.path.dirname(path_to_model) + '\\')
+    ttf = os.listdir(os.path.dirname(path_to_model) + '/')
     smd_reference = []
     qc_file = ''
     for i in ttf:
         if i.endswith('.qc'):
-            qc_file = os.path.dirname(path_to_model)+'\\'+i
+            qc_file = os.path.dirname(path_to_model)+'/'+i
             break
     f = open(qc_file, "r")
     qc_lines = f.readlines()
@@ -182,7 +193,7 @@ def find_smd_reference(path_to_model):
                 break
             if 'smd' in j[s]:
                 j[s] = j[s].replace('\n','').replace('"','')
-                smd_reference.append(os.path.dirname(path_to_model)+'\\'+j[s])
+                smd_reference.append(os.path.dirname(path_to_model)+'/'+j[s])
     for i in smd_reference:
         print("SMD Reference detected: ", i)
     return smd_reference
@@ -190,10 +201,15 @@ def find_smd_reference(path_to_model):
 def get_materials(path_to_model):
     basetexture_line = ''
     print("Analyzing .vmt files")
-    files = os.listdir(os.path.dirname(path_to_model) + '\\')
+    root = os.path.dirname(path_to_model) + "/"
+    files = os.listdir(root)
     for i in files:
         if i.endswith('.vmt'):
-            vmt_file = open(os.path.dirname(path_to_model) + '\\'+i, "r")
+            if not os.path.exists(root + i):
+                print(f"Cannot find {root + i}. Skip.")
+                continue
+
+            vmt_file = open(root + i, "r")
             lines = vmt_file.readlines()
             for j in lines:
                 if 'basetexture' in j.lower():
@@ -205,7 +221,7 @@ def get_materials(path_to_model):
                             basetexture_line = btx[p]
                             break
                     for k in range(len(basetexture_line)-1, 0, -1):
-                        if basetexture_line[k]!='/' and basetexture_line[k]!='\\':
+                        if basetexture_line[k]!='/' and basetexture_line[k]!='/':
                             texture_name = basetexture_line[k]+texture_name
                         else:
                             break
@@ -215,26 +231,37 @@ def get_materials(path_to_model):
         print("Detected material: ", i)
 
 def find_qc(path_to_model):
-    ttf = os.listdir(os.path.dirname(path_to_model) + '\\')
+    ttf = os.listdir(os.path.dirname(path_to_model))
     for i in ttf:
         if '.qc' in i:
-            return os.path.dirname(path_to_model) + '\\'+i
+            return os.path.dirname(path_to_model)+"/"+i
     return None
 
 def find_animsfolder(path_to_model):
-    ttf = os.listdir(os.path.dirname(path_to_model) + '\\')
+    ttf = os.listdir(os.path.dirname(path_to_model))
     for i in ttf:
         if '_anims' in i:
-            return os.path.dirname(path_to_model) + '\\'+i+'\\'
+            return os.path.dirname(path_to_model)+"/"+i
     return None
 
-
-
+# "unknown studio command: //"
+def remove_smd_comment(path_to_smd):
+    root = os.path.dirname(path_to_smd)
+    ttf = os.listdir(root)
+    for i in ttf:
+        if ".smd" in i:
+            with open(f"{root}/{i}", "r+") as f:
+                lines = f.readlines()
+                f.seek(0)
+                for line in lines:
+                    if "//" not in line:
+                        f.write(line)
+                f.truncate()
 
 
 def convert_model(path_to_model):
     source_direction = os.getcwd()
-    smd_direction = os.path.dirname(path_to_model) + '\\'
+    smd_direction = os.path.dirname(path_to_model) + '/'
 
     get_materials(path_to_model)
     if pathcheck(path_to_model):
@@ -246,6 +273,7 @@ def convert_model(path_to_model):
 
         #grabbing box data
         qc_file_source = find_qc(path_to_model)
+        qc_file_source_data = None
         if os.path.exists(qc_file_source):
             qc_file_source_data = open(qc_file_source).readlines()
         for i in qc_file_source_data :
@@ -263,16 +291,16 @@ def convert_model(path_to_model):
                 animlist.append(anim_file)
                 print("Detected animation: ", anim_file)
             try:
-                os.rename(os.getcwd() + '\\' + p, os.getcwd() + '\\' + anim_file)
+                os.rename(os.getcwd() + '/' + p, os.getcwd() + '/' + anim_file)
             except:
                 pass
             try:
-                shutil.move(os.getcwd() + '\\' + anim_file, smd_direction)
+                shutil.move(os.getcwd() + '/' + anim_file, smd_direction)
             except:
                 pass
         os.chdir(smd_direction)
 
-        smd_references = find_smd_reference(os.path.dirname(path_to_model) + '\\')
+        smd_references = find_smd_reference(os.path.dirname(path_to_model) + '/')
         submodels_partnames = []
         submodels_counter = 0
         start_triangle_section = 'triangles'
@@ -343,9 +371,10 @@ def convert_model(path_to_model):
         f.write('\n')
         f.close()
         if os.path.exists(qc_file):
-            shutil.copy(source_direction + '\\' + 'studiomdl.exe', os.getcwd())
-            arguments = "studiomdl.exe " + qc_file
-            subprocess.call(arguments)
+            # shutil.copy(source_direction + '/' + 'studiomdl.exe', os.getcwd())
+            remove_smd_comment(path_to_model)
+            compile_goldsrc_model(qc_file)
+        print("Great Success!")
     else:
         print("We didn't find all required resources. Are you sure you have .vtf(s), .vmt(s), .vtx, .vvd, .mdl ")
 
