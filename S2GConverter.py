@@ -59,45 +59,21 @@ def convert_to_bmp_folder(path_to_vtf):
             if infile != outfile:
                 try:
                     with Image.open(infile) as im:
-                        im = im.quantize(colors=255)
+                        im = im.quantize(colors=256)
                         im = im.convert(mode='P')
                         im.save(outfile)
                 except OSError:
                     print("cannot convert", infile)
 
 def decompile_model(path_to_model):
-    root = os.path.dirname(path_to_model)
     args = f"{WINE_PREFIX} wine {BIN_PATH}/CrowbarCommandLineDecomp.exe -p {path_to_model}"
     subprocess.call(args, shell=True)
 
 def compile_goldsrc_model(path_to_qc):
+    # write the output so to know problem about texture
     root = os.path.dirname(path_to_qc)
     args = f"wine {root}/studiomdl.exe {path_to_qc}"
     os.system(args)
-
-def resize_textures(path_to_folder):
-    if os.path.exists(path_to_folder):
-        files = os.listdir(path_to_folder)
-        for i in files:
-            if i.endswith(".bmp"):
-                if not os.path.exists(path_to_folder + "/" + i):
-                    print(f"Cannot find {path_to_folder + "/" + i}. Skip.")
-                    continue
-                picture = Image.open(path_to_folder + "/" + i)
-                width, height = picture.size
-                if width>TEXTURE_SIZE_CONST:
-                    width = int((width/next_pow_of_two(width))*TEXTURE_SIZE_CONST)
-                if height>TEXTURE_SIZE_CONST:
-                    height = int((height / next_pow_of_two(height)) * TEXTURE_SIZE_CONST)
-
-                if height>TEXTURE_SIZE_CONST:
-                    height = TEXTURE_SIZE_CONST
-                if width>TEXTURE_SIZE_CONST:
-                    width = TEXTURE_SIZE_CONST
-                picture = picture.resize((width, height))
-                picture = picture.quantize(colors=256, method=2)
-                picture.save(path_to_folder + "/" + i)
-
 
 def read_smd_header(path_to_smd):
     header = []
@@ -201,16 +177,17 @@ def polygons_per_part(polygons_amount):
     data.append(polygons_amount)
     return data
 
-def find_smd_reference(path_to_model):
+def find_smd_reference(path_to_model, qc_lines):
     ttf = os.listdir(os.path.dirname(path_to_model) + '/')
     smd_reference = []
-    qc_file = ''
-    for i in ttf:
-        if i.endswith('.qc'):
-            qc_file = os.path.dirname(path_to_model)+'/'+i
-            break
-    f = open(qc_file, "r")
-    qc_lines = f.readlines()
+    # qc_file = ''
+    # for i in ttf:
+    #     if i.endswith('.qc'):
+    #         qc_file = os.path.dirname(path_to_model)+'/'+i
+    #         break
+    # f = open(qc_file, "r")
+    # qc_lines = f.readlines()
+
     for i in qc_lines:
         j = i.split(' ')
         for s in range(1, len(j)):
@@ -255,14 +232,19 @@ def get_materials(path_to_model):
     for i in materialist.values():
         print("Detected material: ", i)
 
-def find_qc(path_to_model):
-    ttf = os.listdir(os.path.dirname(path_to_model))
-    for i in ttf:
-        if '.qc' in i:
-            return os.path.dirname(path_to_model)+"/"+i
-    return None
+# def find_qc(path_to_model):
+#     ttf = os.listdir(os.path.dirname(path_to_model))
+#     f, e = os.path.splitext(path_to_model)
+
+#     for i in ttf:
+#         print(i)
+#         if f"{f}.qc" == i:
+#             return os.path.realpath(i)
+
+#     return None
 
 def find_animsfolder(path_to_model):
+    # TODO find single file
     ttf = os.listdir(os.path.dirname(path_to_model))
     for i in ttf:
         if '_anims' in i:
@@ -296,10 +278,12 @@ def convert_model(path_to_model):
         model_box_data = []
 
         #grabbing box data
-        qc_file_source = find_qc(path_to_model)
-        qc_file_source_data = None
-        if os.path.exists(qc_file_source):
-            qc_file_source_data = open(qc_file_source).readlines()
+        # qc_file_source = find_qc(path_to_model)
+        qc_file_source = os.path.splitext(path_to_model)[0] + ".qc"
+        assert qc_file_source != None and os.path.exists(qc_file_source), f"Cannot find .qc file for {path_to_model}"
+
+        qc_file_source_data = open(qc_file_source).readlines()
+
         for i in qc_file_source_data :
             if "box" in i and not 'hboxset' in i:
                 model_box_data.append(i)
@@ -309,6 +293,7 @@ def convert_model(path_to_model):
         animlist = []
         os.chdir(anims_folder)
         a = os.listdir()
+
         for p in a:
             anim_file = p.replace(' ', '')
             if anim_file not in animlist:
@@ -322,9 +307,10 @@ def convert_model(path_to_model):
                 shutil.move(os.getcwd() + '/' + anim_file, smd_direction)
             except:
                 pass
+
         os.chdir(smd_direction)
 
-        smd_references = find_smd_reference(os.path.dirname(path_to_model) + '/')
+        smd_references = find_smd_reference(os.path.dirname(path_to_model) + '/', qc_file_source_data)
         submodels_partnames = []
         submodels_counter = 0
         start_triangle_section = 'triangles'
@@ -464,7 +450,6 @@ def main():
 
             input_data = os.path.realpath(f"{root}/{file}")
 
-            # TODO: make this shit process file instead of directory
             if parser.test:
                 print(input_data)
             else:
