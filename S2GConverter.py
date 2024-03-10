@@ -78,7 +78,10 @@ def convert_to_bmp_folder(path_to_vtf):
 def decompile_model(path_to_model):
     crowbar_bin = os.path.join(BIN_PATH, "CrowbarCommandLineDecomp.exe")
 
-    args = f"{WINE_PREFIX} wine {crowbar_bin} -p {path_to_model}"
+    args = f"{crowbar_bin} -p {path_to_model}"
+
+    if os.name == "posix":
+        args = f"{WINE_PREFIX} wine {args}" 
 
     os.system(args)
     # subprocess.call(args, shell=True)
@@ -88,7 +91,10 @@ def compile_goldsrc_model(path_to_qc):
     root = os.path.dirname(path_to_qc)
     studiomdl_bin = os.path.join(root, "studiomdl.exe")
 
-    args = f"wine {studiomdl_bin} {path_to_qc}"
+    args = f"{studiomdl_bin} {path_to_qc}"
+
+    if os.name == "posix":
+        args = f"wine {args}"
 
     run_with_log(args)
 
