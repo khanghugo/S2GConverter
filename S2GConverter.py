@@ -16,7 +16,8 @@ BIN_PATH = "/home/khang/map_compiler/model_tools/S2GConverter"
 NO_VTF_PATH = "/home/khang/map_compiler/no_vtf"
 MODEL_COMPILE_LOG = f"{BIN_PATH}/temp.log"
 
-GOLDSRC_MODEL_SUFFIX = "_goldsrc"
+GOLDSRC_MODEL_SUFFIX = "-goldsrc"
+OUTPUT_FOLDER = "out"
 
 def pathcheck(path_to_model):
     resultVar = False
@@ -98,6 +99,7 @@ def run_with_log(args: str):
         f.write("\n")
 
 def check_model_compile_log():
+    res = False
     with open(MODEL_COMPILE_LOG, "r") as f:
         lines = f.readlines()
         lot = len(lines)
@@ -109,7 +111,11 @@ def check_model_compile_log():
                 print(f"{"*" * 16} Material list {"*" * 16}")
                 print(materialist)
 
+                res = True
+
     os.remove(MODEL_COMPILE_LOG)
+
+    return res
 
 def read_smd_header(path_to_smd):
     header = []
@@ -325,7 +331,9 @@ def convert_model(path_to_model, parser):
     get_materials(path_to_model)
     if pathcheck(path_to_model):
         if not parser.smd_assembly:
-            convert_to_bmp_folder(os.path.dirname(path_to_model))
+            if not parser.no_bmp_convert:
+                convert_to_bmp_folder(os.path.dirname(path_to_model))
+
             decompile_model(path_to_model)
 
         model_name = os.path.basename(path_to_model).replace(' ', '')
@@ -415,8 +423,10 @@ def convert_model(path_to_model, parser):
                     submodels_partnames.append(local_partnames)
 
         qc_file = path_to_model[:len(path_to_model) - 4] + f"{GOLDSRC_MODEL_SUFFIX}.qc"
+        goldsrc_model_name = model_name[:len(model_name) - 4] + f"{GOLDSRC_MODEL_SUFFIX}.mdl"
+
         f = open(qc_file, "w")
-        f.write('$modelname "' + model_name[:len(model_name) - 4] + f"{GOLDSRC_MODEL_SUFFIX}.mdl" + '"' + '\n')
+        f.write('$modelname "' + goldsrc_model_name + '"' + '\n')
         f.write('$cd ".\"' + '\n')
         f.write('$cdtexture ".\"' + '\n')
         f.write('$scale 1.0' + '\n')
@@ -444,11 +454,17 @@ def convert_model(path_to_model, parser):
         f.write('\n')
         f.close()
 
-        # sys.exit()
         if os.path.exists(qc_file):
             # shutil.copy(source_direction + '/' + 'studiomdl.exe', os.getcwd())
             remove_smd_comment(path_to_model)
             compile_goldsrc_model(qc_file)
+
+            if check_model_compile_log() and not parser.no_short_circuit:
+                sys.exit()
+
+            if parser.move_output:
+                move_to_output_folder(goldsrc_model_name)
+
         print("Great Success!")
     else:
         print("We didn't find all required resources. Are you sure you have .vtf(s), .vmt(s), .vtx, .vvd, .mdl ")
@@ -459,6 +475,21 @@ def fix_header(header):
         header[i] = header[i].replace('  ', '')
     return header
 
+def move_to_output_folder(file_path):
+    root = os.path.dirname(file_path)
+    root = os.path.realpath(root)
+
+    outpath = f"{root}/{OUTPUT_FOLDER}"
+
+    if not os.path.exists(outpath):
+        os.makedirs(outpath)
+
+    file_name = os.path.basename(file_path)
+    file_name = file_name.replace(GOLDSRC_MODEL_SUFFIX, "")
+
+    os.rename(file_path, f"{outpath}/{file_name}")
+
+
 def argsparser():
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--input', type=str, help="Path to model you want to convert")
@@ -466,13 +497,24 @@ def argsparser():
     parser.add_argument('-E', '--exclude', type=str, help="If model name has this string, exclude from folder conversion.")
     parser.add_argument('-I', '--include', type=str, help="If model name has this string, include in folder conversion (lower priority)")
     parser.add_argument('--test', action='store_true', help="Test input file(s)")
-    parser.add_argument('--smd-assembly', action='store_true', help="Skip everything to work on SMD and QC file")
-    parser.add_argument("--flatshade", action="store_true", help="Enable flatshade for all textures")
+    parser.add_argument("-A", '--smd-assembly', action='store_true', help="Skip everything to work on SMD and QC file")
+    parser.add_argument("-C", "--no-bmp-convert", action="store_true", help="Skip BMP conversion step")
+    parser.add_argument("-F", "--flatshade", action="store_true", help="Enable flatshade for all textures")
+    parser.add_argument("-O", "--move-output", action="store_true", help="Move converted models to `output` folder")
+    parser.add_argument("-S", "--no-short-circuit", action="store_true", help="Stop mass conversion as soon as there is error")
+
     return parser
 
 def print_parser_test(parser):
-    print(f"input {parser.input}")
+    print(f"input file {parser.input}")
+    print(f"input path {parser.path}")
+    print(f"include text `{parser.include}`")
+    print(f"exclude text `{parser.exclude}`")
     print(f"smd_assembly {parser.smd_assembly}")
+    print(f"no bmp conversion {parser.no_bmp_convert}")
+    print(f"flat shade {parser.flatshade}")
+    print(f"move output {parser.move_output}")
+    print(f"no short circuit {parser.no_short_circuit}")
 
 def main():
     parser = argsparser().parse_args(sys.argv[1:])
@@ -521,11 +563,13 @@ def main():
 
             if parser.test:
                 print_parser_test(parser)
+                break
             else:
                 convert_model(input_data, parser)
 
         # sometimes we just don't have the texture
-        check_model_compile_log()
+        if not parser.test:
+            check_model_compile_log()
 
 if __name__=='__main__':
     main()
