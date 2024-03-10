@@ -275,10 +275,9 @@ def find_smd_reference(path_to_model, qc_lines):
         print("SMD Reference detected: ", i)
     return smd_reference
 
-def get_materials(path_to_model):
+def get_materials(root):
     basetexture_line = ''
     print("Analyzing .vmt files")
-    root = os.path.dirname(path_to_model)
     files = os.listdir(root)
 
     for i in files:
@@ -326,8 +325,6 @@ def find_animsfolder(path_to_model):
     ttf = os.listdir(root)
     f = os.path.basename(path_to_model).split(".")[0]
 
-    print(path_to_model)
-
     for i in ttf:
         if f'{f}_anims' in i:
             anims_path = os.path.join(root, i)
@@ -354,7 +351,6 @@ def convert_model(path_to_model, parser):
     source_direction = os.getcwd()
     smd_direction = os.path.dirname(path_to_model)
 
-    get_materials(path_to_model)
     if pathcheck(path_to_model):
         if not parser.smd_assembly:
             if not parser.no_bmp_convert:
@@ -560,7 +556,10 @@ def main():
         if parser.test:
             print_parser_test(parser)
         else:
-            convert_model(input_data, parser)
+            get_materials(path_to_model)
+
+            root = os.path.dirname(path_to_model)
+            convert_model(root, parser)
 
     elif parser.path and len(parser.path) != 0:
         root = format(parser.path)
@@ -568,6 +567,8 @@ def main():
 
         assert os.path.isdir(root), "The input is not a directory"
         assert os.path.exists(root), "The directory does not exist"
+
+        get_materials(os.path.realpath(root))
 
         for file in os.listdir(root):
             if ".mdl" not in file:
@@ -588,7 +589,7 @@ def main():
 
             # invariants
             os.chdir(cwd)
-            materialist.clear()
+            # materialist.clear()
             model_material_list.clear()
 
             input_data = os.path.realpath(os.path.join(root, file))
