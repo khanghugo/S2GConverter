@@ -9,10 +9,14 @@ from PIL import Image
 MAX_TRIANGLES_CONST = 500
 TEXTURE_SIZE_CONST = 256
 materialist = {}
+model_material_list = {}
 
 WINE_PREFIX = "WINEPREFIX=/home/khang/.local/share/wineprefixes/wine32"
 BIN_PATH = "/home/khang/map_compiler/model_tools/S2GConverter"
 NO_VTF_PATH = "/home/khang/map_compiler/no_vtf"
+MODEL_COMPILE_LOG = f"{BIN_PATH}/temp.log"
+
+GOLDSRC_MODEL_SUFFIX = "_goldsrc"
 
 def pathcheck(path_to_model):
     resultVar = False
@@ -67,13 +71,45 @@ def convert_to_bmp_folder(path_to_vtf):
 
 def decompile_model(path_to_model):
     args = f"{WINE_PREFIX} wine {BIN_PATH}/CrowbarCommandLineDecomp.exe -p {path_to_model}"
-    subprocess.call(args, shell=True)
+    os.system(args)
+    # subprocess.call(args, shell=True)
 
 def compile_goldsrc_model(path_to_qc):
     # write the output so to know problem about texture
     root = os.path.dirname(path_to_qc)
     args = f"wine {root}/studiomdl.exe {path_to_qc}"
-    os.system(args)
+    # os.system(args)
+    run_with_log(args)
+
+def run_with_log(args: str):
+    command = args.split(" ")
+    out = subprocess.run(command, stdout=subprocess.PIPE)
+
+    # long term log
+    with open(f"{BIN_PATH}/write.log", "a") as f:
+        f.write(f"{"-" * 64}\n")
+        f.write(args + "\n")
+        f.write(out.stdout.decode("utf-8"))
+        f.write("\n")
+
+    # # session log
+    with open(MODEL_COMPILE_LOG, "w") as f:
+        f.write(out.stdout.decode("utf-8"))
+        f.write("\n")
+
+def check_model_compile_log():
+    with open(MODEL_COMPILE_LOG, "r") as f:
+        lines = f.readlines()
+        lot = len(lines)
+
+        for (index, line) in enumerate(lines):
+            if "ERROR" in line:
+                print(f"{"*" * 16} NOT GREAT SUCCESS {"*" * 16}")
+                print(lines[min(index + 1, lot - 1)])
+                print(f"{"*" * 16} Material list {"*" * 16}")
+                print(materialist)
+
+    os.remove(MODEL_COMPILE_LOG)
 
 def read_smd_header(path_to_smd):
     header = []
@@ -137,9 +173,16 @@ def read_smd_header(path_to_smd):
 
 # in case the materials are from the sdk
 def materiallist_cleanup_FUCK():
+    del_list = []
     for (key, value) in materialist.items():
         if len(value) != 0 and value != key:
             materialist[key] = key;
+    #     if len(value) == 0:
+    #         del_list.append(key)
+
+    # for what in del_list:
+    #     del materialist[what]
+
 
 def split_smd_by_batches(smd_data):
     print('='*100)
@@ -150,10 +193,16 @@ def split_smd_by_batches(smd_data):
     for i in range(0, len(smd_data)):
         if i%4==0 and i!=0:
             if one_verticle_data[0] in materialist.keys():
+                model_material_list[one_verticle_data[0]] = ""
+
                 one_verticle_data[0] = materialist[one_verticle_data[0]]+".bmp"
             elif one_verticle_data[0].lower() in materialist.keys():
+                model_material_list[one_verticle_data[0]] = ""
+
                 one_verticle_data[0] = materialist[one_verticle_data[0].lower()] + ".bmp"
             elif  one_verticle_data[0].upper() in materialist.keys():
+                model_material_list[one_verticle_data[0]] = ""
+
                 one_verticle_data[0] = materialist[one_verticle_data[0].upper()] + ".bmp"
             else:
                 print("Something is realy wrong in materiallist! Are you sure you have all required files?")
@@ -244,11 +293,15 @@ def get_materials(path_to_model):
 #     return None
 
 def find_animsfolder(path_to_model):
-    # TODO find single file
-    ttf = os.listdir(os.path.dirname(path_to_model))
+    root = os.path.dirname(path_to_model)
+    ttf = os.listdir(root)
+    f = os.path.basename(path_to_model).split(".")[0]
+
+    print(path_to_model)
+
     for i in ttf:
-        if '_anims' in i:
-            return os.path.dirname(path_to_model)+"/"+i
+        if f'{f}_anims' in i:
+            return os.path.realpath(f"{root}/{i}")
     return None
 
 # "unknown studio command: //"
@@ -265,15 +318,16 @@ def remove_smd_comment(path_to_smd):
                         f.write(line)
                 f.truncate()
 
-
-def convert_model(path_to_model):
+def convert_model(path_to_model, parser):
     source_direction = os.getcwd()
     smd_direction = os.path.dirname(path_to_model) + '/'
 
     get_materials(path_to_model)
     if pathcheck(path_to_model):
-        convert_to_bmp_folder(os.path.dirname(path_to_model))
-        decompile_model(path_to_model)
+        if not parser.smd_assembly:
+            convert_to_bmp_folder(os.path.dirname(path_to_model))
+            decompile_model(path_to_model)
+
         model_name = os.path.basename(path_to_model).replace(' ', '')
         model_box_data = []
 
@@ -360,12 +414,21 @@ def convert_model(path_to_model):
                     print("Part ", str(part + 1), " of sumbodel ", str(submodels_counter), " was successful written")
                     submodels_partnames.append(local_partnames)
 
-        qc_file = path_to_model[:len(path_to_model) - 4] + "_goldsource.qc"
+        qc_file = path_to_model[:len(path_to_model) - 4] + f"{GOLDSRC_MODEL_SUFFIX}.qc"
         f = open(qc_file, "w")
-        f.write('$modelname "' + model_name[:len(model_name) - 4] + "_goldsource.mdl" + '"' + '\n')
+        f.write('$modelname "' + model_name[:len(model_name) - 4] + f"{GOLDSRC_MODEL_SUFFIX}.mdl" + '"' + '\n')
         f.write('$cd ".\"' + '\n')
         f.write('$cdtexture ".\"' + '\n')
         f.write('$scale 1.0' + '\n')
+
+        if parser.flatshade:
+            for key, value in model_material_list.items():
+                if len(key) == 0:
+                    continue
+
+                f.write(f"$texrendermode \"{key}.bmp\" fullbright \n")
+                f.write(f"$texrendermode \"{key}.bmp\" flatshade \n")
+
         for i in model_box_data:
             f.write(i + '\n')
         bodypart_id = 0
@@ -380,6 +443,8 @@ def convert_model(path_to_model):
             f.write('$sequence ' + i[:len(i) - 4] + ' "' + i[:len(i) - 4] + '"' + '\n')
         f.write('\n')
         f.close()
+
+        # sys.exit()
         if os.path.exists(qc_file):
             # shutil.copy(source_direction + '/' + 'studiomdl.exe', os.getcwd())
             remove_smd_comment(path_to_model)
@@ -394,18 +459,20 @@ def fix_header(header):
         header[i] = header[i].replace('  ', '')
     return header
 
-
-
 def argsparser():
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--input', type=str, help="Path to model you want to convert")
     parser.add_argument('-p', '--path', type=str, help="Path to the folder of model(s) you want to convert")
     parser.add_argument('-E', '--exclude', type=str, help="If model name has this string, exclude from folder conversion.")
-    parser.add_argument('-I', '--include', type=str, help="If model name has this string, include in folder conversion (lower priority).")
-    parser.add_argument('--test', action='store_true', help="Test input file(s).")
+    parser.add_argument('-I', '--include', type=str, help="If model name has this string, include in folder conversion (lower priority)")
+    parser.add_argument('--test', action='store_true', help="Test input file(s)")
+    parser.add_argument('--smd-assembly', action='store_true', help="Skip everything to work on SMD and QC file")
+    parser.add_argument("--flatshade", action="store_true", help="Enable flatshade for all textures")
     return parser
 
-
+def print_parser_test(parser):
+    print(f"input {parser.input}")
+    print(f"smd_assembly {parser.smd_assembly}")
 
 def main():
     parser = argsparser().parse_args(sys.argv[1:])
@@ -417,9 +484,10 @@ def main():
         input_data = os.path.realpath(input_data)
 
         if parser.test:
-            print(input_data)
+            print_parser_test(parser)
         else:
-            convert_model(input_data)
+            convert_model(input_data, parser)
+
     elif parser.path and len(parser.path) != 0:
         root = format(parser.path)
         cwd = os.getcwd()
@@ -431,7 +499,7 @@ def main():
             if ".mdl" not in file:
                 continue
 
-            if "_goldsource" in file:
+            if GOLDSRC_MODEL_SUFFIX in file:
                 continue
 
             if parser.include and len(parser.include):
@@ -447,14 +515,17 @@ def main():
             # invariants
             os.chdir(cwd)
             materialist.clear()
+            model_material_list.clear()
 
             input_data = os.path.realpath(f"{root}/{file}")
 
             if parser.test:
-                print(input_data)
+                print_parser_test(parser)
             else:
-                convert_model(input_data)
+                convert_model(input_data, parser)
 
+        # sometimes we just don't have the texture
+        check_model_compile_log()
 
 if __name__=='__main__':
     main()
