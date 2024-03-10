@@ -14,7 +14,7 @@ model_material_list = {}
 WINE_PREFIX = "WINEPREFIX=/home/khang/.local/share/wineprefixes/wine32"
 BIN_PATH = "/home/khang/map_compiler/model_tools/S2GConverter"
 NO_VTF_PATH = "/home/khang/map_compiler/no_vtf"
-MODEL_COMPILE_LOG = f"{BIN_PATH}/temp.log"
+MODEL_COMPILE_LOG = "temp.log"
 
 GOLDSRC_MODEL_SUFFIX = "-goldsrc"
 OUTPUT_FOLDER = "out"
@@ -51,15 +51,20 @@ def next_pow_of_two(x):
 
 def convert_to_bmp_folder(path_to_vtf):
     # no_vtf doesn't convert to bitmap file
-    args = f"{NO_VTF_PATH}/no_vtf {path_to_vtf} --output-dir {path_to_vtf} --ldr-format png --max-resolution 512 --min-resolution 16"
+    no_vtf_bin = "no_vtf" if os.name == "posix" else "no_vtf.exe"
+
+    no_vtf_bin = os.path.join(NO_VTF_PATH, no_vtf_bin)
+    args = f"{no_vtf_bin} {path_to_vtf} --output-dir {path_to_vtf} --ldr-format png --max-resolution 512 --min-resolution 16"
+
     os.system(args)
 
     for infile in os.listdir(path_to_vtf):
         if ".png" in infile:
             f, e = os.path.splitext(infile)
+
             outfile = f + ".bmp"
-            infile = f"{path_to_vtf}/{infile}"
-            outfile = f"{path_to_vtf}/{outfile}"
+            infile = os.path.join(path_to_vtf, infile)
+            outfile = os.path.join(path_to_vtf, outfile)
 
             if infile != outfile:
                 try:
@@ -71,15 +76,20 @@ def convert_to_bmp_folder(path_to_vtf):
                     print("cannot convert", infile)
 
 def decompile_model(path_to_model):
-    args = f"{WINE_PREFIX} wine {BIN_PATH}/CrowbarCommandLineDecomp.exe -p {path_to_model}"
+    crowbar_bin = os.path.join(BIN_PATH, "CrowbarCommandLineDecomp.exe")
+
+    args = f"{WINE_PREFIX} wine {crowbar_bin} -p {path_to_model}"
+
     os.system(args)
     # subprocess.call(args, shell=True)
 
 def compile_goldsrc_model(path_to_qc):
     # write the output so to know problem about texture
     root = os.path.dirname(path_to_qc)
-    args = f"wine {root}/studiomdl.exe {path_to_qc}"
-    # os.system(args)
+    studiomdl_bin = os.path.join(root, "studiomdl.exe")
+
+    args = f"wine {studiomdl_bin} {path_to_qc}"
+
     run_with_log(args)
 
 def run_with_log(args: str):
@@ -87,20 +97,26 @@ def run_with_log(args: str):
     out = subprocess.run(command, stdout=subprocess.PIPE)
 
     # long term log
-    with open(f"{BIN_PATH}/write.log", "a") as f:
+    write_log_path = os.path.join(BIN_PATH, "write.log")
+
+    with open(write_log_path, "a") as f:
         f.write(f"{"-" * 64}\n")
         f.write(args + "\n")
         f.write(out.stdout.decode("utf-8"))
         f.write("\n")
 
     # # session log
-    with open(MODEL_COMPILE_LOG, "w") as f:
+    temp_log_path = os.path.join(BIN_PATH, MODEL_COMPILE_LOG)
+
+    with open(temp_log_path, "w+") as f:
         f.write(out.stdout.decode("utf-8"))
         f.write("\n")
 
 def check_model_compile_log():
     res = False
-    with open(MODEL_COMPILE_LOG, "r") as f:
+    model_compile_log = os.path.join(BIN_PATH, MODEL_COMPILE_LOG)
+
+    with open(model_compile_log, "r+") as f:
         lines = f.readlines()
         lot = len(lines)
 
@@ -112,8 +128,6 @@ def check_model_compile_log():
                 print(materialist)
 
                 res = True
-
-    os.remove(MODEL_COMPILE_LOG)
 
     return res
 
@@ -233,7 +247,7 @@ def polygons_per_part(polygons_amount):
     return data
 
 def find_smd_reference(path_to_model, qc_lines):
-    ttf = os.listdir(os.path.dirname(path_to_model) + '/')
+    ttf = os.listdir(os.path.dirname(path_to_model))
     smd_reference = []
     # qc_file = ''
     # for i in ttf:
@@ -250,7 +264,7 @@ def find_smd_reference(path_to_model, qc_lines):
                 break
             if 'smd' in j[s]:
                 j[s] = j[s].replace('\n','').replace('"','')
-                smd_reference.append(os.path.dirname(path_to_model)+'/'+j[s])
+                smd_reference.append(os.path.join(path_to_model, j[s]))
     for i in smd_reference:
         print("SMD Reference detected: ", i)
     return smd_reference
@@ -258,15 +272,17 @@ def find_smd_reference(path_to_model, qc_lines):
 def get_materials(path_to_model):
     basetexture_line = ''
     print("Analyzing .vmt files")
-    root = os.path.dirname(path_to_model) + "/"
+    root = os.path.dirname(path_to_model)
     files = os.listdir(root)
+
     for i in files:
         if i.endswith('.vmt'):
-            if not os.path.exists(root + i):
-                print(f"Cannot find {root + i}. Skip.")
+            curr_file = os.path.join(root, i)
+            if not os.path.exists(curr_file):
+                print(f"Cannot find {curr_file}. Skip.")
                 continue
 
-            vmt_file = open(root + i, "r")
+            vmt_file = open(curr_file, "r")
             lines = vmt_file.readlines()
             for j in lines:
                 if 'basetexture' in j.lower():
@@ -284,6 +300,7 @@ def get_materials(path_to_model):
                             break
                     texture_name=texture_name[:len(texture_name)-2]
                     materialist[i[:len(i)-4]] = texture_name
+
     for i in materialist.values():
         print("Detected material: ", i)
 
@@ -307,7 +324,9 @@ def find_animsfolder(path_to_model):
 
     for i in ttf:
         if f'{f}_anims' in i:
-            return os.path.realpath(f"{root}/{i}")
+            anims_path = os.path.join(root, i)
+
+            return os.path.realpath(anims_path)
     return None
 
 # "unknown studio command: //"
@@ -316,7 +335,8 @@ def remove_smd_comment(path_to_smd):
     ttf = os.listdir(root)
     for i in ttf:
         if ".smd" in i:
-            with open(f"{root}/{i}", "r+") as f:
+            smd_path = os.path.join(root, i)
+            with open(smd_path, "r+") as f:
                 lines = f.readlines()
                 f.seek(0)
                 for line in lines:
@@ -326,7 +346,7 @@ def remove_smd_comment(path_to_smd):
 
 def convert_model(path_to_model, parser):
     source_direction = os.getcwd()
-    smd_direction = os.path.dirname(path_to_model) + '/'
+    smd_direction = os.path.dirname(path_to_model)
 
     get_materials(path_to_model)
     if pathcheck(path_to_model):
@@ -362,17 +382,20 @@ def convert_model(path_to_model, parser):
                 animlist.append(anim_file)
                 print("Detected animation: ", anim_file)
             try:
-                os.rename(os.getcwd() + '/' + p, os.getcwd() + '/' + anim_file)
+                anim_file_path1 = os.path.join(os.getcwd(), p)
+                anim_file_path2 = os.path.join(os.getcwd(), anim_file)
+                os.rename(anim_file_path1, anim_file_path2)
             except:
                 pass
             try:
-                shutil.move(os.getcwd() + '/' + anim_file, smd_direction)
+                anim_file_path = os.path.join(os.getcwd(), anim_file)
+                shutil.move(anim_file_path, smd_direction)
             except:
                 pass
 
         os.chdir(smd_direction)
 
-        smd_references = find_smd_reference(os.path.dirname(path_to_model) + '/', qc_file_source_data)
+        smd_references = find_smd_reference(os.path.dirname(path_to_model), qc_file_source_data)
         submodels_partnames = []
         submodels_counter = 0
         start_triangle_section = 'triangles'
@@ -422,8 +445,10 @@ def convert_model(path_to_model, parser):
                     print("Part ", str(part + 1), " of sumbodel ", str(submodels_counter), " was successful written")
                     submodels_partnames.append(local_partnames)
 
-        qc_file = path_to_model[:len(path_to_model) - 4] + f"{GOLDSRC_MODEL_SUFFIX}.qc"
-        goldsrc_model_name = model_name[:len(model_name) - 4] + f"{GOLDSRC_MODEL_SUFFIX}.mdl"
+        no_mdl_suffix = path_to_model[:len(path_to_model) - 4]
+
+        qc_file = no_mdl_suffix + f"{GOLDSRC_MODEL_SUFFIX}.qc"
+        goldsrc_model_name = no_mdl_suffix + f"{GOLDSRC_MODEL_SUFFIX}.mdl"
 
         f = open(qc_file, "w")
         f.write('$modelname "' + goldsrc_model_name + '"' + '\n')
@@ -479,7 +504,7 @@ def move_to_output_folder(file_path):
     root = os.path.dirname(file_path)
     root = os.path.realpath(root)
 
-    outpath = f"{root}/{OUTPUT_FOLDER}"
+    outpath = os.path.join(root, OUTPUT_FOLDER)
 
     if not os.path.exists(outpath):
         os.makedirs(outpath)
@@ -487,7 +512,8 @@ def move_to_output_folder(file_path):
     file_name = os.path.basename(file_path)
     file_name = file_name.replace(GOLDSRC_MODEL_SUFFIX, "")
 
-    os.rename(file_path, f"{outpath}/{file_name}")
+    outpath_file_name = os.path.join(outpath, file_name)
+    os.rename(file_path, outpath_file_name)
 
 
 def argsparser():
@@ -559,7 +585,7 @@ def main():
             materialist.clear()
             model_material_list.clear()
 
-            input_data = os.path.realpath(f"{root}/{file}")
+            input_data = os.path.realpath(os.path.join(root, file))
 
             if parser.test:
                 print_parser_test(parser)
@@ -570,6 +596,7 @@ def main():
         # sometimes we just don't have the texture
         if not parser.test:
             check_model_compile_log()
+            os.remove(os.path.join(BIN_PATH, MODEL_COMPILE_LOG))
 
 if __name__=='__main__':
     main()
