@@ -306,6 +306,10 @@ def get_materials(root):
                     texture_name=texture_name[:len(texture_name)-2]
                     materialist[i[:len(i)-4]] = texture_name
 
+        if i.endswith(".bmp"):
+            without_bmp_suffix = i[:len(i)-4]
+            materialist[without_bmp_suffix] = without_bmp_suffix
+
     for i in materialist.values():
         print("Detected material: ", i)
 
@@ -404,11 +408,15 @@ def convert_model(path_to_model, parser):
 
         for smd_file in smd_references:
             triangle_section_written = False
+
             if os.path.exists(smd_file):
+
                 local_partnames = []
                 header = read_smd_header(smd_file)
-                if len(get_smd_data(smd_file)[len(header) + 1:]) > 0:
-                    verticle_data = split_smd_by_batches(get_smd_data(smd_file)[len(header) + 1:])
+                smd_data = get_smd_data(smd_file)
+
+                if len(smd_data[len(header) + 1:]) > 0:
+                    verticle_data = split_smd_by_batches(smd_data[len(header) + 1:])
                 else:
                     print("WARNING! SMD data parsing error! It can cause some problems!")
                     print("Excepted: ", smd_file)
@@ -467,6 +475,10 @@ def convert_model(path_to_model, parser):
                 f.write(f"$texrendermode \"{key}.bmp\" flatshade \n")
 
         for i in model_box_data:
+            # dont write more stupid data
+            if "$modelname" in i or "studio \"" in i or ".smd" in i:
+                continue
+
             f.write(i + '\n')
         bodypart_id = 0
         anti_duble = []
@@ -556,10 +568,10 @@ def main():
         if parser.test:
             print_parser_test(parser)
         else:
-            get_materials(path_to_model)
+            root = os.path.dirname(input_data)
 
-            root = os.path.dirname(path_to_model)
-            convert_model(root, parser)
+            get_materials(root)
+            convert_model(input_data, parser)
 
     elif parser.path and len(parser.path) != 0:
         root = format(parser.path)
