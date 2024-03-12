@@ -18,6 +18,7 @@ MODEL_COMPILE_LOG = "temp.log"
 
 GOLDSRC_MODEL_SUFFIX = "-goldsrc"
 OUTPUT_FOLDER = "out"
+REPEAT_LOG = "_repeat.log"
 
 def pathcheck(path_to_model):
     resultVar = False
@@ -122,18 +123,21 @@ def check_model_compile_log():
     res = False
     model_compile_log = os.path.join(BIN_PATH, MODEL_COMPILE_LOG)
 
-    with open(model_compile_log, "r+") as f:
-        lines = f.readlines()
-        lot = len(lines)
+    try:
+        with open(model_compile_log, "r+") as f:
+            lines = f.readlines()
+            lot = len(lines)
 
-        for (index, line) in enumerate(lines):
-            if "ERROR" in line:
-                print(f"{"*" * 16} NOT GREAT SUCCESS {"*" * 16}")
-                print(lines[min(index + 1, lot - 1)])
-                print(f"{"*" * 16} Material list {"*" * 16}")
-                print(materialist)
+            for (index, line) in enumerate(lines):
+                if "ERROR" in line:
+                    print(f"{"*" * 16} NOT GREAT SUCCESS {"*" * 16}")
+                    print(lines[min(index + 1, lot - 1)])
+                    print(f"{"*" * 16} Material list {"*" * 16}")
+                    print(materialist)
 
-                res = True
+                    res = True
+    except IOError:
+        pass
 
     return res
 
@@ -409,6 +413,10 @@ def convert_model(path_to_model, parser):
         for smd_file in smd_references:
             triangle_section_written = False
 
+            # dont write physics
+            if "physics" in smd_file:
+                continue
+
             if os.path.exists(smd_file):
 
                 local_partnames = []
@@ -470,6 +478,10 @@ def convert_model(path_to_model, parser):
             for key, value in model_material_list.items():
                 if len(key) == 0:
                     continue
+
+                # # cyberwave
+                # if "chromatic_glass" in key or "circuit_board" in key:
+                #     f.write(f"$texrendermode \"{key}.bmp\" additive \n")
 
                 f.write(f"$texrendermode \"{key}.bmp\" fullbright \n")
                 f.write(f"$texrendermode \"{key}.bmp\" flatshade \n")
@@ -540,8 +552,9 @@ def argsparser():
     parser.add_argument("-A", '--smd-assembly', action='store_true', help="Skip everything to work on SMD and QC file")
     parser.add_argument("-C", "--no-bmp-convert", action="store_true", help="Skip BMP conversion step")
     parser.add_argument("-F", "--flatshade", action="store_true", help="Enable flatshade for all textures")
-    parser.add_argument("-O", "--move-output", action="store_true", help="Move converted models to `output` folder")
+    parser.add_argument("-O", "--move-output", action="store_true", help=f"Move converted models to `{OUTPUT_FOLDER}` folder")
     parser.add_argument("-S", "--no-short-circuit", action="store_true", help="Stop mass conversion as soon as there is error")
+    parser.add_argument("-R", "--no-repeat", action="store_true", help=f"Avoid converting model that is converted by checking `{REPEAT_LOG}`. Remember to clean it up.")
 
     return parser
 
@@ -604,13 +617,37 @@ def main():
             # materialist.clear()
             model_material_list.clear()
 
+            # aka .mdl file
             input_data = os.path.realpath(os.path.join(root, file))
+            repeat_log_path = os.path.realpath(os.path.join(root, REPEAT_LOG))
+
+            should_skip = False
+
+            if parser.no_repeat:
+                try:
+                    with open(repeat_log_path, "r") as f:
+                        lines = f.readlines()
+
+                        for line in lines:
+                            if input_data in line:
+                                should_skip = True
+                                break
+                except IOError:
+                    pass
 
             if parser.test:
                 print_parser_test(parser)
                 break
             else:
+                if should_skip:
+                    continue
+
                 convert_model(input_data, parser)
+
+                with open(repeat_log_path, "a+") as f:
+                    f.seek(0)
+                    f.write(input_data)
+                    f.write("\n")
 
         # sometimes we just don't have the texture
         if not parser.test:
