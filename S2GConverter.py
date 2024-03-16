@@ -59,22 +59,31 @@ def convert_to_bmp_folder(path_to_vtf):
 
     os.system(args)
 
-    for infile in os.listdir(path_to_vtf):
-        if ".png" in infile:
-            f, e = os.path.splitext(infile)
+    recursive_convert(path_to_vtf)
 
-            outfile = f + ".bmp"
-            infile = os.path.join(path_to_vtf, infile)
-            outfile = os.path.join(path_to_vtf, outfile)
+def convert_to_bmp(infile):
+    if ".png" in infile:
+        f, e = os.path.splitext(infile)
 
-            if infile != outfile:
-                try:
-                    with Image.open(infile) as im:
-                        im = im.quantize(colors=256)
-                        im = im.convert(mode='P')
-                        im.save(outfile)
-                except OSError:
-                    print("cannot convert", infile)
+        outfile = f + ".bmp"
+
+        if infile != outfile:
+            try:
+                with Image.open(infile) as im:
+                    im = im.quantize(colors=256)
+                    im = im.convert(mode='P')
+                    im.save(outfile)
+            except OSError:
+                print("cannot convert", infile)
+
+def recursive_convert(ent):
+    if os.path.isfile(ent):
+        convert_to_bmp(ent)
+        return
+
+    for folders in os.listdir(ent):
+        path = os.path.realpath(os.path.join(ent, folders))
+        recursive_convert(path)
 
 def decompile_model(path_to_model):
     crowbar_bin = os.path.join(BIN_PATH, "CrowbarCommandLineDecomp.exe")
@@ -479,9 +488,11 @@ def convert_model(path_to_model, parser):
                 if len(key) == 0:
                     continue
 
-                # # cyberwave
-                # if "chromatic_glass" in key or "circuit_board" in key:
+                # cyberwave
+                # if "circuit_board" in key:
                 #     f.write(f"$texrendermode \"{key}.bmp\" additive \n")
+                # if "chromatic_glass" in key:
+                #     f.write(f"$texrendermode \"{key}.bmp\" masked \n")
 
                 f.write(f"$texrendermode \"{key}.bmp\" fullbright \n")
                 f.write(f"$texrendermode \"{key}.bmp\" flatshade \n")
