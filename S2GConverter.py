@@ -50,7 +50,7 @@ def next_pow_of_two(x):
     a=math.ceil(math.log(x, 2))
     return int(math.pow(2.0, a))
 
-def convert_to_bmp_folder(path_to_vtf):
+def convert_to_bmp_folder(path_to_vtf, parser):
     # no_vtf doesn't convert to bitmap file
     no_vtf_bin = "no_vtf" if os.name == "posix" else "no_vtf.exe"
 
@@ -59,9 +59,9 @@ def convert_to_bmp_folder(path_to_vtf):
 
     os.system(args)
 
-    recursive_convert(path_to_vtf)
+    recursive_convert(path_to_vtf, parser)
 
-def convert_to_bmp(infile):
+def convert_to_bmp(infile, parser):
     if ".png" in infile:
         f, e = os.path.splitext(infile)
 
@@ -69,21 +69,37 @@ def convert_to_bmp(infile):
 
         if infile != outfile:
             try:
-                with Image.open(infile) as im:
-                    im = im.quantize(colors=256)
-                    im = im.convert(mode='P')
-                    im.save(outfile)
+                with Image.open(infile) as img:
+                    img = img.quantize(colors=256)
+                    img = img.convert(mode='P')
+
+                    if parser.masked_texture:
+                        palette = img.getpalette()
+                        color_counts = sorted(img.getcolors(), reverse=True)
+                        palette_index = color_counts[0][1]
+                        dominant_color = palette[palette_index*3:palette_index*3 + 3]
+
+                        if color_counts == 256:
+                            for x in range(img.size[0]):
+                                for y in range(img.size[1]):
+                                    curr = (x, y)
+                                    if img.getpixel(curr) == palette_index:
+                                        img.putpixel(curr, 255)
+                                    elif img.getpixel(curr) == 255:
+                                        img.putpixel(curr, palette_index)
+
+                    img.save(outfile)
             except OSError:
                 print("cannot convert", infile)
 
-def recursive_convert(ent):
+def recursive_convert(ent, parser):
     if os.path.isfile(ent):
-        convert_to_bmp(ent)
+        convert_to_bmp(ent, parser)
         return
 
     for folders in os.listdir(ent):
         path = os.path.realpath(os.path.join(ent, folders))
-        recursive_convert(path)
+        recursive_convert(path, parser)
 
 def decompile_model(path_to_model):
     crowbar_bin = os.path.join(BIN_PATH, "CrowbarCommandLineDecomp.exe")
@@ -288,6 +304,17 @@ def find_smd_reference(path_to_model, qc_lines):
         print("SMD Reference detected: ", i)
     return smd_reference
 
+def is_masked_texture(path_to_material):
+    with Image.open(path_to_material) as img:
+        palette = img.getpalette()
+        color_counts = sorted(img.getcolors(), reverse=True)
+        palette_index = color_counts[0][1]
+        palette_use = color_counts[0][0]
+
+        percentage = palette_use / (img.size[0] * img.size[1])
+
+        return palette_index == 255 and percentage > 0.25
+
 def get_materials(root):
     basetexture_line = ''
     print("Analyzing .vmt files")
@@ -371,7 +398,7 @@ def convert_model(path_to_model, parser):
     if pathcheck(path_to_model):
         if not parser.smd_assembly:
             if not parser.no_bmp_convert:
-                convert_to_bmp_folder(os.path.dirname(path_to_model))
+                convert_to_bmp_folder(os.path.dirname(path_to_model), parser)
 
             decompile_model(path_to_model)
 
@@ -437,7 +464,6 @@ def convert_model(path_to_model, parser):
                 else:
                     print("WARNING! SMD data parsing error! It can cause some problems!")
                     print("Excepted: ", smd_file)
-                    pass
                 parts_amount = math.ceil(len(verticle_data) / MAX_TRIANGLES_CONST)
                 if parts_amount==0:
                     parts_amount = 1
@@ -483,19 +509,31 @@ def convert_model(path_to_model, parser):
         f.write('$cdtexture ".\"' + '\n')
         f.write('$scale 1.0' + '\n')
 
-        if parser.flatshade:
-            for key, value in model_material_list.items():
-                if len(key) == 0:
-                    continue
 
-                # cyberwave
-                # if "circuit_board" in key:
-                #     f.write(f"$texrendermode \"{key}.bmp\" additive \n")
-                # if "chromatic_glass" in key:
-                #     f.write(f"$texrendermode \"{key}.bmp\" masked \n")
+        for key, value in model_material_list.items():
+            if len(key) == 0:
+                continue
 
+            key = key.lower()
+
+            # cyberwave
+            # if "circuit_board" in key:
+            #     f.write(f"$texrendermode \"{key}.bmp\" additive \n")
+            # if "chromatic_glass" in key:
+            #     f.write(f"$texrendermode \"{key}.bmp\" masked \n")
+
+            # epiphany ramp
+            if "unbreakable" in key:
+                f.write(f"$texrendermode \"{key}.bmp\" additive \n")
+            # if "gridwall_glow" in key:
+            #     f.write(f"$texrendermode \"{key}.bmp\" masked \n")
+
+            if parser.flatshade:
                 f.write(f"$texrendermode \"{key}.bmp\" fullbright \n")
                 f.write(f"$texrendermode \"{key}.bmp\" flatshade \n")
+
+            if parser.masked_texture and is_masked_texture(f"{key}.bmp"):
+                f.write(f"$texrendermode \"{key}.bmp\" masked \n")
 
         for i in model_box_data:
             # dont write more stupid data
@@ -528,8 +566,12 @@ def convert_model(path_to_model, parser):
                 move_to_output_folder(goldsrc_model_name)
 
         print("Great Success!")
+
+        return 0
     else:
         print("We didn't find all required resources. Are you sure you have .vtf(s), .vmt(s), .vtx, .vvd, .mdl ")
+
+        return 1
 
 def fix_header(header):
     for i in range(0, len(header)):
@@ -566,6 +608,7 @@ def argsparser():
     parser.add_argument("-O", "--move-output", action="store_true", help=f"Move converted models to `{OUTPUT_FOLDER}` folder")
     parser.add_argument("-S", "--no-short-circuit", action="store_true", help="Stop mass conversion as soon as there is error")
     parser.add_argument("-R", "--no-repeat", action="store_true", help=f"Avoid converting model that is converted by checking `{REPEAT_LOG}`. Remember to clean it up.")
+    parser.add_argument("-M", "--masked-texture", action="store_true", help=f"Automatically (attempting to) create masked textures")
 
     return parser
 
@@ -653,17 +696,21 @@ def main():
                 if should_skip:
                     continue
 
-                convert_model(input_data, parser)
+                convert_result = convert_model(input_data, parser)
 
-                with open(repeat_log_path, "a+") as f:
-                    f.seek(0)
-                    f.write(input_data)
-                    f.write("\n")
+                if convert_result == 0:
+                    with open(repeat_log_path, "a+") as f:
+                        f.seek(0)
+                        f.write(input_data)
+                        f.write("\n")
 
         # sometimes we just don't have the texture
         if not parser.test:
             check_model_compile_log()
-            os.remove(os.path.join(BIN_PATH, MODEL_COMPILE_LOG))
+
+            compile_log = os.path.join(BIN_PATH, MODEL_COMPILE_LOG)
+            if os.path.exists(compile_log):
+                os.remove(compile_log)
 
 if __name__=='__main__':
     main()
