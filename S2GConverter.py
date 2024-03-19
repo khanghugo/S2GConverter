@@ -691,28 +691,23 @@ def main():
                 except IOError:
                     pass
 
-            if parser.test:
-                print_parser_test(parser)
-                break
-            else:
-                if should_skip:
-                    continue
+            if should_skip:
+                continue
 
-                convert_result = convert_model(input_data, parser)
+            convert_result = convert_model(input_data, parser)
 
-                if convert_result == 0:
-                    with open(repeat_log_path, "a+") as f:
-                        f.seek(0)
-                        f.write(input_data)
-                        f.write("\n")
+            if convert_result == 0:
+                with open(repeat_log_path, "a+") as f:
+                    f.seek(0)
+                    f.write(input_data)
+                    f.write("\n")
 
         # sometimes we just don't have the texture
-        if not parser.test:
-            check_model_compile_log()
+        check_model_compile_log()
 
-            compile_log = os.path.join(BIN_PATH, MODEL_COMPILE_LOG)
-            if os.path.exists(compile_log):
-                os.remove(compile_log)
+        compile_log = os.path.join(BIN_PATH, MODEL_COMPILE_LOG)
+        if os.path.exists(compile_log):
+            os.remove(compile_log)
 
 if __name__=='__main__':
     main()
