@@ -507,8 +507,9 @@ def convert_model(path_to_model, parser):
         f.write('$modelname "' + goldsrc_model_name + '"' + '\n')
         f.write('$cd ".\"' + '\n')
         f.write('$cdtexture ".\"' + '\n')
-        f.write('$scale 1.0' + '\n')
 
+        model_scale = parser.model_scale if parser.model_scale is not None else 1.0
+        f.write(f'$scale {model_scale}' + '\n')
 
         for key, value in model_material_list.items():
             if len(key) == 0:
@@ -525,8 +526,6 @@ def convert_model(path_to_model, parser):
             # epiphany ramp
             if "unbreakable" in key:
                 f.write(f"$texrendermode \"{key}.bmp\" additive \n")
-            # if "gridwall_glow" in key:
-            #     f.write(f"$texrendermode \"{key}.bmp\" masked \n")
 
             if parser.flatshade:
                 f.write(f"$texrendermode \"{key}.bmp\" fullbright \n")
@@ -609,6 +608,7 @@ def argsparser():
     parser.add_argument("-S", "--no-short-circuit", action="store_true", help="Stop mass conversion as soon as there is error")
     parser.add_argument("-R", "--no-repeat", action="store_true", help=f"Avoid converting model that is converted by checking `{REPEAT_LOG}`. Remember to clean it up.")
     parser.add_argument("-M", "--masked-texture", action="store_true", help=f"Automatically (attempting to) create masked textures")
+    parser.add_argument("-s", "--model-scale", type=float, help=f"Scale model(s) by the factor")
 
     return parser
 
@@ -622,9 +622,14 @@ def print_parser_test(parser):
     print(f"flat shade {parser.flatshade}")
     print(f"move output {parser.move_output}")
     print(f"no short circuit {parser.no_short_circuit}")
+    print(f"model scale is {parser.model_scale}")
 
 def main():
     parser = argsparser().parse_args(sys.argv[1:])
+
+    if parser.test:
+        print_parser_test(parser)
+        return
 
     if parser.input and len(parser.input) != 0:
         input_data = format(parser.input)
@@ -632,13 +637,10 @@ def main():
         assert os.path.exists(input_data), "Model you want to convert doesn't exist"
         input_data = os.path.realpath(input_data)
 
-        if parser.test:
-            print_parser_test(parser)
-        else:
-            root = os.path.dirname(input_data)
+        root = os.path.dirname(input_data)
 
-            get_materials(root)
-            convert_model(input_data, parser)
+        get_materials(root)
+        convert_model(input_data, parser)
 
     elif parser.path and len(parser.path) != 0:
         root = format(parser.path)
