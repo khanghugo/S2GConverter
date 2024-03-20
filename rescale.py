@@ -25,8 +25,11 @@ def convert_to_bmp(infile):
 					percentage = palette_use / (img.size[0] * img.size[1])
 
 					should_mask = len(color_counts) == 256 or palette_index == 0
+					
+					# if you dont want to maask texture then add another arugment to the script
+					do_mask = sys.argv[2] == None
 
-					if should_mask and percentage > THRESHOLD:
+					if do_mask and should_mask and percentage > THRESHOLD and (len(palette) // 3 == 256):
 
 						print(infile)
 
@@ -62,6 +65,8 @@ def recursive_convert(ent):
 def main():
 	if sys.argv[1] == None:
 		sys.exit(1)
+
+	# if you dont want to maask texture then add another arugment to the script
 
 	path = os.path.realpath(sys.argv[1])
 	recursive_convert(path)
