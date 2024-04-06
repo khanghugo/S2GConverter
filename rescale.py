@@ -26,8 +26,8 @@ def convert_to_bmp(infile):
 
 					should_mask = len(color_counts) == 256 or palette_index == 0
 					
-					# if you dont want to maask texture then add another arugment to the script
-					do_mask = sys.argv[2] == None
+					# if you want to maask texture then add another arugment to the script
+					do_mask = len(sys.argv) > 2
 
 					if do_mask and should_mask and percentage > THRESHOLD and (len(palette) // 3 == 256):
 
